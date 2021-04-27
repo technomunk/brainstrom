@@ -23,6 +23,26 @@ from collections import UserDict
 from fractions import Fraction
 from functools import reduce
 from math import lcm
+from sys import stdout
+
+def __expect_type(var, type):
+	if not isinstance(var, type):
+		raise TypeError()
+
+
+def __expect_types(var, *args):
+	for typ in args:
+		if isinstance(var, typ):
+			return
+	raise TypeError()
+
+
+def beautify_ratio(ratio: Fraction):
+	if ratio.denominator == 1:
+		return str(ratio.numerator)
+	else:
+		return f'({ratio.numerator}/{ratio.denominator})'
+
 
 class Recipe():
 	def __init__(self, name: str, rate: Fraction, producer: str, ingredients):
@@ -75,56 +95,58 @@ class Cookbook(UserDict):
 			else:
 				subtree.append((normalized_rate, ingredient_name))
 
-		return {
-			'name': name,
-			'rate': rate,
-			'producers': (rate / recipe.rate, recipe.producer),
-			'subtree': subtree,
-		}
-
-
-def producers(tree):
-	'''
-	Get all the producers of a Cookbook.tree().
-	'''
-	def r_producers(tree, acc):
-		if 'producers' in tree:
-			(ratio, producer) = tree['producers']
-			acc.append((ratio, producer, tree['name']))
-			for subtree in tree['subtree']:
-				r_producers(subtree, acc)
+		return RecipeTree(recipe, rate, subtree)
 	
-	result = []
-	r_producers(tree, result)
-	return result
+
+	def __repr__(self):
+		mid = ''.join([f'{recipe}, ' for recipe in self.values()])
+		return f'Cookbook{{ {mid} }}'
 
 
-def beautify_producer(tuple_producer):
-	'''
-	Create a nicer string representation for a producer tuple.
-	'''
-	(ratio, producer, item) = tuple_producer
-	return f'{item}@({ratio.numerator}/{ratio.denominator}){producer}'
+# TODO: add an iterator to the tree
+class RecipeTree():
+	def __init__(self, recipe: Recipe, rate: Fraction, subtree: list):
+		self.recipe = recipe
+		self.rate = rate
+		self.subtree = subtree
+	
+	def print(self, out = stdout, indent = '\t'):
+		def r_print(node: RecipeTree, out, indent: str, depth: int):
+			normalized_rate = node.rate / node.recipe.rate
+			out.write(f"{indent * depth}{beautify_ratio(node.rate)}x'{node.recipe.name}' @ {beautify_ratio(normalized_rate)}x'{node.recipe.producer}':\n")
+			for tree in node.subtree:
+				if isinstance(tree, RecipeTree):
+					r_print(tree, out, indent, depth + 1)
+				else:
+					(rate, item) = tree
+					out.write(f"{indent * (depth + 1)}{beautify_ratio(rate)}x'{item}'\n")
+		r_print(self, out, indent, 0)
 
-
-def merge_producers(producers):
-	'''
-	Merge producers producing the same items together.
-	'''
-	result = dict()
-	for (ratio, producer, item) in producers:
-		if (producer, item) in result:
-			result[(producer, item)] += ratio
-		else:
-			result[(producer, item)] = ratio
-	return result
-
-
-def producer_lcm(producers):
-	'''
-	Find least common multiple of provided producers.
-	'''
-	if isinstance(producers, list):
-		producers = merge_producers(producers)
-
-	return reduce(lambda acc, ratio: lcm(acc, ratio.denominator), producers.values(), 1)
+	def __repr__(self):
+		normalized_rate = self.rate / self.recipe.rate
+		return f"{beautify_ratio(self.rate)}x'{self.recipe.name}' @ {beautify_ratio(normalized_rate)}x'{self.recipe.producer}' : {self.subtree}"
+	
+	def __mul__(self, num):
+		if not isinstance(num, Fraction):
+			num = Fraction(num)
+		def mul(node, num):
+			if isinstance(node, RecipeTree):
+				return node * num
+			else:
+				return (node[0] * num, node[1])
+		subtree = [mul(node, num) for node in self.subtree]
+		return RecipeTree(self.recipe, self.rate * num, subtree)
+	
+	def lcm(self):
+		'''
+		Find the least common whole multiple of all the parts of the recipe tree.
+		If the tree is multiplied by the result of this, all components will occupy 100%
+		of their producers.
+		'''
+		def _lcm(num, node):
+			if isinstance(node, RecipeTree):
+				return lcm(node.lcm(), num)
+			else:
+				return lcm(node[0].denominator, num)
+		
+		return reduce(_lcm, self.subtree, (self.rate / self.recipe.rate).denominator)
