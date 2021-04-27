@@ -20,11 +20,17 @@
 # cookbook.cook('Dough')
 
 from collections import UserDict
+from fractions import Fraction
+from functools import reduce
+from math import lcm
 
 class Recipe():
-	def __init__(self, name: str, rate: float, producer: str, ingredients):
+	def __init__(self, name: str, rate: Fraction, producer: str, ingredients):
 		self.name = name
-		self.rate = rate
+		if isinstance(rate, Fraction):
+			self.rate = rate
+		else:
+			self.rate = Fraction(rate)
 		self.producer = producer
 		self.ingredients = [(ingredient['rate'], ingredient['name']) for ingredient in ingredients]
 	
@@ -41,45 +47,84 @@ class Cookbook(UserDict):
 		for recipe in recipes:
 			self.add(recipe)
 
+
 	def add(self, recipe: Recipe):
 		'''
 		Add the given recipe to the cookbook
 		'''
-		if recipe is not Recipe:
+		if not isinstance(recipe, Recipe):
 			recipe = Recipe(**recipe)
 		self[recipe.name] = recipe
 	
-	def ingredients(self, name, limit = 0):
+
+	def tree(self, name, rate = 1, depth = -1):
 		'''
-		Find the ingredients to make the provided item. If limit is set, the ingredients
-		of ingredients will be recursively gathered until the limit is reached.
-		Returns [(rate, name)] of the ingredients to make 1 rate of the requested recipe.
+		Get the production tree of the provided item up to provided depth.
 		'''
 		if name not in self:
 			raise KeyError(f"'{name}' is not a known recipe!")
 		
 		recipe = self[name]
-		result = []
+		subtree = []
+		if not isinstance(rate, Fraction):
+			rate = Fraction(rate)
 		for (ingredient_rate, ingredient_name) in recipe.ingredients:
-			normalized_rate = ingredient_rate / recipe.rate
-			if limit > 0 and ingredient_name in self:
-				subingredients = self.ingredients(ingredient_name, limit - 1)
-				result.extend([(rate * normalized_rate, name) for (rate, name) in subingredients])
+			normalized_rate = ingredient_rate / recipe.rate * rate
+			if depth != 0 and ingredient_name in self:
+				subtree.append(self.tree(ingredient_name, normalized_rate, depth - 1))
 			else:
-				result.append((normalized_rate, ingredient_name))
+				subtree.append((normalized_rate, ingredient_name))
 
-		return result
+		return {
+			'name': name,
+			'rate': rate,
+			'producers': (rate / recipe.rate, recipe.producer),
+			'subtree': subtree,
+		}
+
+
+def producers(tree):
+	'''
+	Get all the producers of a Cookbook.tree().
+	'''
+	def r_producers(tree, acc):
+		if 'producers' in tree:
+			(ratio, producer) = tree['producers']
+			acc.append((ratio, producer, tree['name']))
+			for subtree in tree['subtree']:
+				r_producers(subtree, acc)
 	
-	def producers(self, ingredients):
-		'''
-		Find the number of producers required to produce the provided ingredients in correct rates.
-		'''
-		result = []
-		for (rate, name) in ingredients:
-			if name in self:
-				recipe = self[name]
-				result.append((recipe.rate / rate, f'{recipe.producer}=>{name}'))
-			else:
-				result.append((rate, name))
+	result = []
+	r_producers(tree, result)
+	return result
 
-		return result
+
+def beautify_producer(tuple_producer):
+	'''
+	Create a nicer string representation for a producer tuple.
+	'''
+	(ratio, producer, item) = tuple_producer
+	return f'{item}@({ratio.numerator}/{ratio.denominator}){producer}'
+
+
+def merge_producers(producers):
+	'''
+	Merge producers producing the same items together.
+	'''
+	result = dict()
+	for (ratio, producer, item) in producers:
+		if (producer, item) in result:
+			result[(producer, item)] += ratio
+		else:
+			result[(producer, item)] = ratio
+	return result
+
+
+def producer_lcm(producers):
+	'''
+	Find least common multiple of provided producers.
+	'''
+	if isinstance(producers, list):
+		producers = merge_producers(producers)
+
+	return reduce(lambda acc, ratio: lcm(acc, ratio.denominator), producers.values(), 1)
