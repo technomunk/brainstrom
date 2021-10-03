@@ -16,10 +16,10 @@ turtle.speed(0)
 turtle.color("black")
 
 for i in range(SAMPLE_COUNT):
-	r = sqrt(i / SAMPLE_COUNT) * OUTER_RADIUS
-	x = r * cos(i * GOLDEN_ANGLE)
-	y = r * sin(i * GOLDEN_ANGLE)
-	turtle.goto(x, y)
-	turtle.dot(DOT_RADIUS * 2, "red")
+    r = sqrt(i / SAMPLE_COUNT) * OUTER_RADIUS
+    x = r * cos(i * GOLDEN_ANGLE)
+    y = r * sin(i * GOLDEN_ANGLE)
+    turtle.goto(x, y)
+    turtle.dot(DOT_RADIUS * 2, "red")
 
 turtle.done()
